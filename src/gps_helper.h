@@ -43,7 +43,7 @@
 #include "../../definitions.h"
 
 #ifndef GPS_READ_BUFFER_SIZE
-#define GPS_READ_BUFFER_SIZE 128
+#define GPS_READ_BUFFER_SIZE 256
 #endif
 
 enum class GPSCallbackType {
