@@ -59,20 +59,29 @@
 #include "gps_helper.h"
 #include "../../definitions.h"
 
-#define JAVAD_BAUDRATE 57600
-#define JAVAD_RECV_BUFFER_SIZE 1024
+#define JAVAD_BAUDRATE 9600
+#define JAVAD_RECV_BUFFER_SIZE 512
 
 // HEADER LENGTH
 #define JN_HEAD_LEN		5
 
 // MAXIMUM MESSAGE LENGTH (BYTES)
-#define JN_MAX_DATA_LEN 512
+#define JN_MAX_DATA_LEN 60
+
+// MAXIMUM MESSAGE LENGTH (BYTES)
+#define JN_MIN_MSG_LEN 10
 
 /* Message IDs */
-#define JAVAD_ID_RT0    '~'
-#define JAVAD_ID_RT1    '~'
-#define JAVAD_ID_EE0    '|'
-#define JAVAD_ID_EE1    '|'
+#define JAVAD_ID_RT 0x7E7E  // ~~
+#define JAVAD_ID_EE 0x7C7C  // ||
+#define JAVAD_ID_PV 0x5650  // PV
+#define JAVAD_ID_PG 0x4750  // PG
+#define JAVAD_ID_VG 0x4756  // VG
+#define JAVAD_ID_SP 0x5053  // SP
+#define JAVAD_ID_SV 0x5653  // SV
+#define JAVAD_ID_DP 0x5044  // DP
+#define JAVAD_ID_SI 0x4953  // SI
+#define JAVAD_ID_RE 0x4552  // RE
 
 ///* General: Header */
 //typedef struct {
@@ -106,6 +115,8 @@ typedef unsigned short			nstr_t;								// sequence of ASCII characters prepende
 enum MsgType{ RT, PV, PG, VG, SP, SV, DP, SI, EE, count }; // implemented messages
 
 typedef union { u1 p[4]; u4 n; } type_msglen;
+typedef	union { a1 p[2]; u2 n; } type_msgID;
+typedef	union { a1 p[4]; u4 n; } type_epochTime;
 
 // [~~] Receiver Time {5}
 struct SMsgRT
@@ -267,6 +278,14 @@ typedef enum {
     JAVAD_DECODE_END1
 } javad_decode_state_t;
 
+/* ACK state */
+typedef enum {
+    JAVAD_ACK_IDLE = 0,
+    JAVAD_ACK_WAITING,
+    UJAVAD_ACK_GOT_ACK,
+    JAVAD_ACK_GOT_NAK
+} javad_ack_state_t;
+
 class GPSDriverJavad : public GPSHelper
 {
 public :
@@ -283,17 +302,27 @@ private:
     /**
      * Parse the binary JAVAD packet
      */
-    int parseChar(const uint8_t b);
+    int parse();
+
+    /**
+     * Handle the msg once it has arrived
+     */
+    int handleMessage(int msglen);
 
     /**
      * Handle the package once it has arrived
      */
-    int handleMessage();
+    int handleEpoch();
 
     /**
      * Reset the parse state machine for a fresh start
      */
     void decodeInit();
+
+    /**
+     * Wait for message acknowledge
+     */
+    int waitForAck(const unsigned timeout);
 
     int getRT(double &time);
     int getPV(SMsgPV &pv);
@@ -310,21 +339,23 @@ private:
     int setBufSize(int len);
     int removeMsgFromBuf(int start, int len);
 
+    bool checkID(type_msgID id);
     int hex2dec(char *hex, int len);
-    u1 cs(u1 const* buf, int count);
+    u1 cs(int count);
 
     struct vehicle_gps_position_s *_gps_position;
     struct satellite_info_s *_satellite_info;
+    bool _configured;
+    javad_ack_state_t _ack_state;
 
     int _sat_count;
     uint64_t _last_timestamp_time;
-    javad_decode_state_t _decode_state;
-    uint8_t _rx_buffer[JAVAD_RECV_BUFFER_SIZE];
-    uint32_t _rx_buffer_len;
-    uint8_t _recvJNSMsg[MsgType::count];
+//    javad_decode_state_t _decode_state;
 
-    a1 id[2];						// message ID
-    type_msglen blength;			// only [3] !!! // message body length - descriptor
+    uint8_t _recvJNSMsg[MsgType::count];
+    type_msgID _id;						// message ID
+    type_msglen _blength;			// only [3] !!! // message body length - descriptor
+    type_epochTime _epochTime;
 
     SMsgPV	_pvMsg;
     SMsgPG	_pgMsg;
@@ -333,6 +364,34 @@ private:
     SMsgSV  _svMsg;
     SMsgDP  _dpMsg;
     SMsgSI  _siMsg;
+
+    class CircularBuffer
+    {
+    public:
+        CircularBuffer();
+
+        bool empty();
+        bool full();
+        int getOccupancy();
+
+        int pop();
+        int popMultiple(int n);
+        int pop(uint8_t* c);
+        int push(const uint8_t c);
+
+        uint8_t at(uint32_t p);
+
+    private :
+        uint8_t _buffer[JAVAD_RECV_BUFFER_SIZE];
+        uint32_t _head;
+        uint32_t _tail;
+        uint32_t _count;
+    };
+
+    CircularBuffer _cbuffer;
+
+//    uint8_t _rx_buffer[10];
+//    uint32_t _rx_buffer_len;
 };
 
 #endif /* JAVAD_H_ */
