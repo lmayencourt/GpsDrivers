@@ -59,8 +59,10 @@
 #include "gps_helper.h"
 #include "../../definitions.h"
 
-#define JAVAD_BAUDRATE 9600
+#define JAVAD_BAUDRATE 57600
 #define JAVAD_RECV_BUFFER_SIZE 512
+
+#define JAVAD_CONFIG_TIMEOUT 200
 
 // HEADER LENGTH
 #define JN_HEAD_LEN		5
@@ -69,7 +71,7 @@
 #define JN_MAX_DATA_LEN 60
 
 // MAXIMUM MESSAGE LENGTH (BYTES)
-#define JN_MIN_MSG_LEN 10
+#define JN_MIN_MSG_LEN 7 // RE is the smallest msg
 
 /* Message IDs */
 #define JAVAD_ID_RT 0x7E7E  // ~~
@@ -282,7 +284,7 @@ typedef enum {
 typedef enum {
     JAVAD_ACK_IDLE = 0,
     JAVAD_ACK_WAITING,
-    UJAVAD_ACK_GOT_ACK,
+    JAVAD_ACK_GOT_ACK,
     JAVAD_ACK_GOT_NAK
 } javad_ack_state_t;
 
@@ -323,16 +325,6 @@ private:
      * Wait for message acknowledge
      */
     int waitForAck(const unsigned timeout);
-
-    int getRT(double &time);
-    int getPV(SMsgPV &pv);
-    int getPG(SMsgPG &pg);
-    int getVG(SMsgVG &vg);
-    int getSP(SMsgSP &sp);
-    int getSV(SMsgSV &sv);
-    int getDP(SMsgDP &dp);
-    int getSI(SMsgSI &si, int &nrSat);
-    int getEE();
 
     int findMsg(unsigned char *MsgID, int &msgstart, int &msglen);
     int addChar(u1 mychar);
