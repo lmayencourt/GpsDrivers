@@ -71,7 +71,7 @@
 #define JN_MAX_DATA_LEN 60
 
 // MAXIMUM MESSAGE LENGTH (BYTES)
-#define JN_MIN_MSG_LEN 7 // RE is the smallest msg
+#define JN_MIN_MSG_LEN 6 // EE is the smallest msg
 
 /* Message IDs */
 #define JAVAD_ID_RT 0x7E7E  // ~~
@@ -365,6 +365,7 @@ private:
         bool empty();
         bool full();
         int getOccupancy();
+        void flush();
 
         int pop();
         int popMultiple(int n);
@@ -372,6 +373,9 @@ private:
         int push(const uint8_t c);
 
         uint8_t at(uint32_t p);
+
+        // debug only
+        void print();
 
     private :
         uint8_t _buffer[JAVAD_RECV_BUFFER_SIZE];

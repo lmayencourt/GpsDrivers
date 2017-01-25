@@ -61,65 +61,51 @@ GPSDriverJavad::~GPSDriverJavad()
 
 int GPSDriverJavad::configure(unsigned &baudrate, OutputMode output_mode)
 {
-//    char initSequence1[] = "%%dm,/dev/ser/a\n";
-//    char initSequence2[] = "%%em,/dev/ser/a,jps{/RT,/PG,/VG,/SP,/SV,/DP,/XA,/SI,/EE}:{0.1}\n";
-//    const unsigned baudrates[] = {9600, 38400, 19200, 57600, 115200};
-//    unsigned baud_i;
+    char initSequence[] = "%%dm,/dev/ser/a\n%%em,/dev/ser/a,jps{/RT,/PG,/VG,/SP,/SV,/DP,/XA,/SI,/EE}:{0.1}\n";
+    const unsigned baudrates[] = {9600, 38400, 19200, 57600, 115200};
+    unsigned baud_i;
 
     _configured = false;
 
-    GPS_INFO("JAVAD: ------- configure -------");
+//    GPS_INFO("JAVAD: ------- configure -------");
     if (output_mode != OutputMode::GPS) {
         GPS_WARN("JAVAD: Unsupported Output Mode %i", (int)output_mode);
         return -1;
     }
 
-    setBaudrate(JAVAD_BAUDRATE);
-
-//    for (baud_i = 0; baud_i < sizeof(baudrates) / sizeof(baudrates[0]); baud_i++) {
-//        baudrate = baudrates[baud_i];
-//        setBaudrate(baudrate);
+    for (baud_i = 0; baud_i < sizeof(baudrates) / sizeof(baudrates[0]); baud_i++) {
+        baudrate = baudrates[baud_i];
+        setBaudrate(baudrate);
 
 //        GPS_INFO("JAVAD: try %d", baudrate);
 
-//        decodeInit();
+        decodeInit();
 
-//    GPS_INFO("JAVAD: configure > init length %d", strlen(initSequence1));
+        // send the configuration string to the JAVAD
+        if (write((void *) initSequence, strlen(initSequence)) != strlen(initSequence)) {
+            GPS_WARN("JAVAD: init sequence write error");
+            return -1;
+        }
 
-    char test[] = "%%dm,/dev/ser/a\n%%em,/dev/ser/a,jps{/RT,/PG,/VG,/SP,/SV,/DP,/XA,/SI,/EE}:{0.1}\n";
-// send the dumy string to the JAVAD
-if (write((void *) test, strlen(test)) != strlen(test)) {
-    GPS_WARN("JAVAD: init sequence write error");
-    return -1;
-}
+        if (waitForAck(JAVAD_CONFIG_TIMEOUT) < 0) {
+            /* try next baudrate */
+//            GPS_INFO("no ack");
+            continue;
+        }
 
-//        // send the configuration string to the JAVAD
-//        if (write((void *) initSequence1, strlen(initSequence1)) != strlen(initSequence1)) {
-//            GPS_WARN("JAVAD: init sequence write error");
-//            return -1;
-//        }
-
-//        if (write((void *) initSequence2, strlen(initSequence2)) != strlen(initSequence2)) {
-//            GPS_WARN("JAVAD: init sequence write error");
-//            return -1;
-//        }
-
-//        if (waitForAck(JAVAD_CONFIG_TIMEOUT) < 0) {
-//            /* try next baudrate */
-//            continue;
-//        }
-
-//        /* at this point we have correct baudrate on both ends */
-//        break;
-//    }
+        /* at this point we have correct baudrate on both ends */
+        break;
+    }
 
 //    if (baud_i >= sizeof(baudrates) / sizeof(baudrates[0])) {
 //        return -1;	// connection and/or baudrate detection failed
 //    }
 
-    GPS_INFO("JAVAD: ------- configure done -------");
+//    GPS_INFO("JAVAD: ------- configure done -------");
 
-    decodeInit();
+//    setBaudrate(JAVAD_BAUDRATE);
+
+//    decodeInit();
     _configured = true;
     return 0;
 
@@ -132,17 +118,40 @@ int GPSDriverJavad::waitForAck(const unsigned timeout)
 
     _ack_state = JAVAD_ACK_WAITING;
 
+    uint8_t buf[GPS_READ_BUFFER_SIZE];
+
+    /* timeout additional to poll */
     gps_abstime time_started = gps_absolute_time();
 
-    while ((_ack_state == JAVAD_ACK_WAITING) && (gps_absolute_time() < time_started + timeout * 1000)) {
-        receive(timeout);
+    while (true) {
+
+        int rd_nbr = read(buf, sizeof(buf), timeout);
+
+        if (rd_nbr < 0) {
+            /* something went wrong when polling or reading */
+            GPS_WARN("JAVAD: read return < 0");
+            return -1;
+
+        } else if (rd_nbr > 0) {
+
+
+            for (int i=0; i< rd_nbr; i++) {
+                if (buf[i] == 0x7E && buf[i+1] == 0x7E) {
+                    GPS_INFO("get valid msg");
+                    _ack_state = JAVAD_ACK_GOT_ACK;
+                    return 1;
+                }
+            }
+
+        }
+
+        /* in case we keep trying but only get crap from GPS */
+        if (time_started + timeout * 1000 < gps_absolute_time()) {
+//            GPS_WARN("JAVAD: timeout");
+            return -1;
+        }
+
     }
-
-    if(_ack_state == JAVAD_ACK_GOT_ACK)
-        ret = 0;    // ACK received ok
-    else
-        _ack_state = JAVAD_ACK_GOT_NAK;
-
 
     return ret;
 }
@@ -170,10 +179,10 @@ int GPSDriverJavad::receive(unsigned timeout)
             return -1;
 
         } else if (ret > 0) {
-//            GPS_INFO("JAVAD: copy %d to rx buffer", ret);
+
+            GPS_INFO("JAVAD: copy %d to rx buffer %d", ret,_cbuffer.getOccupancy());
             /* pass received bytes to the packet decoder */
             for (int i = 0; i < ret; i++) {
-//                handled = parseChar(buf[i]);
                 if (_cbuffer.full() == false) {
                     if (_cbuffer.push(buf[i]) < 0) {
                          //buffer full
@@ -181,8 +190,10 @@ int GPSDriverJavad::receive(unsigned timeout)
                         return -1;
                     }
                 }
-                else
+                else {
+//                    GPS_INFO("buff full -> parse()");
                     handled |= parse();
+                }
             }
 
             handled |= parse();
@@ -200,7 +211,7 @@ int GPSDriverJavad::receive(unsigned timeout)
 
         /* in case we keep trying but only get crap from GPS */
         if (time_started + timeout * 1000 < gps_absolute_time()) {
-            GPS_WARN("JAVAD: timeout", handled);
+//            GPS_WARN("JAVAD: timeout", handled);
             return -1;
         }
 
@@ -218,6 +229,7 @@ int GPSDriverJavad::parse()
     while (_cbuffer.getOccupancy() > JN_MIN_MSG_LEN) {
 //    GPS_INFO("JAVAD: buffer %d",_cbuffer.getOccupancy()) ;
         // get ID and length
+
         if (_cbuffer.at(0) != '\n') {
              _id.p[0] = _cbuffer.at(0);
              _id.p[1] = _cbuffer.at(1);
@@ -237,22 +249,22 @@ int GPSDriverJavad::parse()
                     if (_cbuffer.getOccupancy() >= msglen) {
                         // whole message found
 
-                        if (_id.n == JAVAD_ID_RE)   {
+//                        if (_id.n == JAVAD_ID_RE) {
 //                            ret = handleMessage(msglen);
-//                            GPS_INFO("JAVAD: RE pop %");
-//                            _cbuffer.popMultiple(msglen);
-                            GPS_INFO("get RE");
-                            _cbuffer.pop();
+////                            GPS_INFO("JAVAD: RE pop %");
+////                            _cbuffer.popMultiple(msglen);
+//                            _cbuffer.pop();
 //                            break;
-                        }
-                        else {
+//                        }
+//                        else {
                             u1 checksum = cs(msglen -1);
                             u1 msg_checksum = _cbuffer.at(msglen -1);
                             // TMP: disable checksum
                             if (checksum == msg_checksum) {
                                 // msg found
                                 ret = handleMessage(msglen);
-                                _cbuffer.popMultiple(msglen);
+                                if (_cbuffer.popMultiple(msglen) < 0)
+                                    GPS_ERR("pop mult err");
 
                                 if (ret > 0)
                                     return ret;
@@ -260,9 +272,10 @@ int GPSDriverJavad::parse()
                             else {    // checksum doesn't match
     //                            _debug_counter.bad_checksum_counter++;
                                 GPS_INFO("JAVAD: bad checksum") ;
-                                _cbuffer.popMultiple(msglen);
+                                if (_cbuffer.popMultiple(msglen) < 0)
+                                    GPS_ERR("pop mult err");
                             }
-                        }
+//                        }
                     }
                     else {
 //                        _debug_counter.not_enough_data_counter++;
@@ -272,17 +285,22 @@ int GPSDriverJavad::parse()
                  else {    // bad length
 //                     _debug_counter.bad_lenght_msg_counter++;
 //                     GPS_INFO("JAVAD: bad length") ;
-                     _cbuffer.pop();
+                     if (_cbuffer.pop() < 0)
+                         GPS_ERR("pop err");
                  }
              }
              else {     // not supported ID
 //                 _debug_counter.bad_id_counter++;
 //                 GPS_INFO("JAVAD: bad ID") ;
-                 _cbuffer.pop();
+                 if (_cbuffer.pop() < 0)
+                     GPS_ERR("pop err");
              }
         }
-        else
-            _cbuffer.pop();
+        else {
+            if (_cbuffer.pop() < 0)
+                GPS_ERR("pop err");
+        }
+
     }
 
 //    GPS_INFO("JAVAD: parse ret %d", ret);
@@ -295,7 +313,7 @@ int GPSDriverJavad::handleMessage(int msglen)
     int ret = 0;
     int i, from = JN_HEAD_LEN;
 
-//    GPS_INFO("JAVAD: handle msg %c%c",_id.p[0], _id.p[1]) ;
+    GPS_INFO("JAVAD: handle msg %c%c",_id.p[0], _id.p[1]) ;
 
     switch (_id.n) {
     case JAVAD_ID_RT:
@@ -304,6 +322,10 @@ int GPSDriverJavad::handleMessage(int msglen)
 
         // New epoch
         _recvJNSMsg[RT] = 1;
+        if (_configured == false) {
+            _ack_state = JAVAD_ACK_GOT_ACK;
+            ret = 1;
+        }
         break;
 
     case JAVAD_ID_PV:
@@ -399,11 +421,11 @@ int GPSDriverJavad::handleMessage(int msglen)
         _recvJNSMsg[SI] = 1;
         break;
 
-    case JAVAD_ID_RE:
+//    case JAVAD_ID_RE:
 //        _ack_state = JAVAD_ACK_GOT_ACK;
-//        GPS_INFO("JAVAD: get ACK");
-//        return 1;
-        break;
+////        GPS_INFO("JAVAD: get ACK");
+//        ret = 1;
+//        break;
 
     case JAVAD_ID_EE:
         ret = handleEpoch();
@@ -424,6 +446,17 @@ int GPSDriverJavad::handleEpoch()
 
 //        GPS_INFO("JAVAD: handle epoch...");
 
+    // End of epoch => update
+    GPS_INFO("JAVAD: get end of epoch > %d %d %d %d %d %d %d %d",
+                                        _recvJNSMsg[RT],
+                                        _recvJNSMsg[PG],
+                                        _recvJNSMsg[VG],
+                                        _recvJNSMsg[SP],
+                                        _recvJNSMsg[SV],
+                                        _recvJNSMsg[DP],
+                                        _recvJNSMsg[PV],
+                                        _recvJNSMsg[SI]);
+
         if (_recvJNSMsg[RT] == 1)
         {
             if(_recvJNSMsg[PG] && _recvJNSMsg[VG] && _recvJNSMsg[SP] && _recvJNSMsg[SV] && _recvJNSMsg[DP])
@@ -431,17 +464,6 @@ int GPSDriverJavad::handleEpoch()
 //    //         GPS_INFO("JAVAD: get start of epoch");
             _gps_position->timestamp = gps_absolute_time();
             _last_timestamp_time = _gps_position->timestamp;
-
-            // End of epoch => update
-//            GPS_INFO("JAVAD: get end of epoch > %d %d %d %d %d %d %d %d",
-//                                                _recvJNSMsg[RT],
-//                                                _recvJNSMsg[PG],
-//                                                _recvJNSMsg[VG],
-//                                                _recvJNSMsg[SP],
-//                                                _recvJNSMsg[SV],
-//                                                _recvJNSMsg[DP],
-//                                                _recvJNSMsg[PV],
-//                                                _recvJNSMsg[SI]);
 
             // by default fix_type no fix
                 _gps_position->fix_type = 0;
@@ -625,16 +647,25 @@ int GPSDriverJavad::handleEpoch()
                 _recvJNSMsg[PV] = 0;
                 _recvJNSMsg[SI] = 0;
             }
+            else
+            {
+                // debug double SI bug
+                if (_recvJNSMsg[SI]){
+                    _cbuffer.print();
+                }
+
+            }
          }
+
 
     //    GPS_INFO("JAVAD: handle message end");
         return ret;
 
-    }
+}
 
 void GPSDriverJavad::decodeInit()
 {
-    _cbuffer.empty();
+    _cbuffer.flush();
 
     _recvJNSMsg[RT] = 0;
     _recvJNSMsg[PG] = 0;
@@ -645,7 +676,7 @@ void GPSDriverJavad::decodeInit()
     _recvJNSMsg[PV] = 0;
     _recvJNSMsg[SI] = 0;
 
-    _configured = false;
+//    _configured = false;
 }
 
 // 0 = ID not supported, 1 = valid ID
@@ -661,7 +692,7 @@ bool GPSDriverJavad::checkID(type_msgID id)
     case JAVAD_ID_DP:
     case JAVAD_ID_SI:
     case JAVAD_ID_EE:
-    case JAVAD_ID_RE:
+//    case JAVAD_ID_RE:
         return true;
     default :
         return false;
@@ -734,8 +765,6 @@ GPSDriverJavad::CircularBuffer::CircularBuffer()
 
 bool GPSDriverJavad::CircularBuffer::empty()
 {
-    _head = 0;
-    _tail = 0;
     return (_count == 0);
 }
 
@@ -747,6 +776,13 @@ bool GPSDriverJavad::CircularBuffer::full()
 int GPSDriverJavad::CircularBuffer::getOccupancy()
 {
     return _count;
+}
+
+void GPSDriverJavad::CircularBuffer::flush()
+{
+    _head = 0;
+    _tail = 0;
+    _count = 0;
 }
 
 int GPSDriverJavad::CircularBuffer::pop()
@@ -812,4 +848,12 @@ uint8_t GPSDriverJavad::CircularBuffer::at(uint32_t p)
         return _buffer[_tail + p];
     else
         return _buffer[_tail + p - JAVAD_RECV_BUFFER_SIZE];
+}
+
+void GPSDriverJavad::CircularBuffer::print()
+{
+    GPS_INFO("cBuffer > start print %d value", _count);
+    for (int i=0; i<_count;i++) {
+        printf("[%d,%c]",at(i),at(i));
+    }
 }
