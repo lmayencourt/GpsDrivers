@@ -61,7 +61,7 @@ GPSDriverJavad::~GPSDriverJavad()
 
 int GPSDriverJavad::configure(unsigned &baudrate, OutputMode output_mode)
 {
-    char initSequence[] = "%%dm,/dev/ser/a\n%%em,/dev/ser/a,jps{/RT,/PG,/VG,/SP,/SV,/DP,/XA,/SI,/EE}:{0.1}\n";
+    char initSequence[] = "%%dm,/dev/ser/a\n%%em,/dev/ser/a,jps{/RT,/PG,/VG,/SP,/SV,/DP,/RD,/XA,/SI,/EE}:{0.1}\n";
     const unsigned baudrates[] = {9600, 38400, 19200, 57600, 115200};
     unsigned baud_i;
 
@@ -180,7 +180,7 @@ int GPSDriverJavad::receive(unsigned timeout)
 
         } else if (ret > 0) {
 
-            GPS_INFO("JAVAD: copy %d to rx buffer %d", ret,_cbuffer.getOccupancy());
+//            GPS_INFO("JAVAD: copy %d to rx buffer %d", ret,_cbuffer.getOccupancy());
             /* pass received bytes to the packet decoder */
             for (int i = 0; i < ret; i++) {
                 if (_cbuffer.full() == false) {
@@ -271,7 +271,7 @@ int GPSDriverJavad::parse()
                             }
                             else {    // checksum doesn't match
     //                            _debug_counter.bad_checksum_counter++;
-                                GPS_INFO("JAVAD: bad checksum") ;
+//                                GPS_INFO("JAVAD: bad checksum") ;
                                 if (_cbuffer.popMultiple(msglen) < 0)
                                     GPS_ERR("pop mult err");
                             }
@@ -291,7 +291,7 @@ int GPSDriverJavad::parse()
              }
              else {     // not supported ID
 //                 _debug_counter.bad_id_counter++;
-//                 GPS_INFO("JAVAD: bad ID") ;
+//                 GPS_INFO("JAVAD: bad ID %c%c", _id.p[0], _id.p[1]) ;
                  if (_cbuffer.pop() < 0)
                      GPS_ERR("pop err");
              }
@@ -313,7 +313,7 @@ int GPSDriverJavad::handleMessage(int msglen)
     int ret = 0;
     int i, from = JN_HEAD_LEN;
 
-    GPS_INFO("JAVAD: handle msg %c%c",_id.p[0], _id.p[1]) ;
+//    GPS_INFO("JAVAD: handle msg %c%c",_id.p[0], _id.p[1]) ;
 
     switch (_id.n) {
     case JAVAD_ID_RT:
@@ -409,6 +409,16 @@ int GPSDriverJavad::handleMessage(int msglen)
         _recvJNSMsg[DP] = 1;
         break;
 
+    case JAVAD_ID_RD:
+//        GPS_INFO("JAVAD: parse RD") ;
+        for(i=0; i<2; i++) _rdMsg.year = _cbuffer.at(from++);
+        _rdMsg.month = _cbuffer.at(from++);
+        _rdMsg.day = _cbuffer.at(from++);
+        _rdMsg.base = _cbuffer.at(from);
+
+        _recvJNSMsg[RD] = 1;
+        break;
+
     case JAVAD_ID_SI:
 //        GPS_INFO("JAVAD: parse SI") ;
         _sat_count = msglen - 6;
@@ -447,25 +457,25 @@ int GPSDriverJavad::handleEpoch()
 //        GPS_INFO("JAVAD: handle epoch...");
 
     // End of epoch => update
-    GPS_INFO("JAVAD: get end of epoch > %d %d %d %d %d %d %d %d",
-                                        _recvJNSMsg[RT],
-                                        _recvJNSMsg[PG],
-                                        _recvJNSMsg[VG],
-                                        _recvJNSMsg[SP],
-                                        _recvJNSMsg[SV],
-                                        _recvJNSMsg[DP],
-                                        _recvJNSMsg[PV],
-                                        _recvJNSMsg[SI]);
+//    GPS_INFO("JAVAD: get end of epoch > %d %d %d %d %d %d %d %d",
+//                                        _recvJNSMsg[RT],
+//                                        _recvJNSMsg[PG],
+//                                        _recvJNSMsg[VG],
+//                                        _recvJNSMsg[SP],
+//                                        _recvJNSMsg[SV],
+//                                        _recvJNSMsg[DP],
+//                                        _recvJNSMsg[PV],
+//                                        _recvJNSMsg[SI]);
 
         if (_recvJNSMsg[RT] == 1)
         {
             if(_recvJNSMsg[PG] && _recvJNSMsg[VG] && _recvJNSMsg[SP] && _recvJNSMsg[SV] && _recvJNSMsg[DP])
             {
-//    //         GPS_INFO("JAVAD: get start of epoch");
-            _gps_position->timestamp = gps_absolute_time();
-            _last_timestamp_time = _gps_position->timestamp;
+                _gps_position->timestamp = gps_absolute_time();
+                _last_timestamp_time = _gps_position->timestamp;
+                _gps_position->timestamp_time_relative = (int32_t)(_last_timestamp_time - _gps_position->timestamp);
 
-            // by default fix_type no fix
+                // by default fix_type no fix
                 _gps_position->fix_type = 0;
 
                 if (_recvJNSMsg[PG]) {
@@ -477,8 +487,6 @@ int GPSDriverJavad::handleEpoch()
                     _gps_position->lon = (int32_t)(tmp * 1E7);
                     tmp = _pgMsg.alt.n * 180.0 / (double)(M_PI_F);
                     _gps_position->alt_ellipsoid = (int32_t)(tmp * 1E3);
-
-//        //                GPS_INFO("JAVAD: gps lat > %d", _gps_position->lat);
 
                     switch (_pgMsg.type) {
                     case 1: _gps_position->fix_type = 3; break;
@@ -493,23 +501,20 @@ int GPSDriverJavad::handleEpoch()
                     _rate_count_lat_lon++;
                 }
 
-//                    if (_recvJNSMsg[SP]) {
-//                        // max of xx or yy
-//                        if(_svMsg.xx.n > _svMsg.yy.n)
-//                            _gps_position->eph = sqrt(_svMsg.xx.n);
-//                        else
-//                            _gps_position->eph = sqrt(_svMsg.yy.n);
+                if (_recvJNSMsg[SP]) {
+                    const float horizontal_pos_variance = fmax(_spMsg.xx.n, _spMsg.yy.n);
+                    _gps_position->eph = (horizontal_pos_variance > 0) ? sqrtf(horizontal_pos_variance) : -1.0F;
 
-//                        _gps_position->epv = sqrt(_svMsg.zz.n);
-//                    }
-
-                if (_recvJNSMsg[SV]) {
-                    // to correct after
-                    _gps_position->s_variance_m_s = sqrt(_svMsg.xx.n + _svMsg.yy.n +
-                                                         _svMsg.zz.n + _svMsg.tt.n);
+                    _gps_position->epv = (_spMsg.zz.n > 0) ? sqrtf(_spMsg.zz.n) : -1.0F;
                 }
 
+                if (_recvJNSMsg[SV]) {
+                    _gps_position->s_variance_m_s = fmax(fmax(_svMsg.xx.n, _svMsg.yy.n), _svMsg.zz.n);
+                }
+
+
                 if (_recvJNSMsg[VG]) {
+                    _gps_position->vel_ned_valid = true;
                     _gps_position->vel_n_m_s = _vgMsg.vN.n;
                     _gps_position->vel_e_m_s = _vgMsg.vE.n;
                     _gps_position->vel_d_m_s = -_vgMsg.vU.n;
@@ -525,18 +530,35 @@ int GPSDriverJavad::handleEpoch()
                 if (_recvJNSMsg[DP]) {
                     _gps_position->hdop = _dpMsg.hdop.n;
                     _gps_position->vdop = _dpMsg.vdop.n;
-        //                _gps_position->fix_type = _pgMsg.type + 2;
                 }
 
-//        //            _gps_position->c_variance_rad;
-//        //            _gps_position->noise_per_ms;
-//        //            _gps_position->jamming_indicator;
-//                _gps_position->vel_ned_valid = true;
+                if (_recvJNSMsg[VG] && _recvJNSMsg[SV]) {
+                    /* There is a nonlinear relationship between the velocity vector and the heading.
+                     * Use Jacobian to transform velocity covariance to heading covariance
+                     *
+                     * Nonlinear equation:
+                     * heading = atan2(vel_e_m_s, vel_n_m_s)
+                     * For math, see http://en.wikipedia.org/wiki/Atan2#Derivative
+                     *
+                     * To calculate the variance of heading from the variance of velocity,
+                     * cov(heading) = J(velocity)*cov(velocity)*J(velocity)^T
+                     */
+                    float vel_n = _vgMsg.vN.n;
+                    float vel_e = _vgMsg.vE.n;
+                    float vel_n_sq = vel_n * vel_n;
+                    float vel_e_sq = vel_e * vel_e;
+                    _gps_position->c_variance_rad = (vel_e_sq * _svMsg.xx.n +
+                      -2 * vel_n * vel_e * _svMsg.xy.n + // Covariance matrix is symmetric
+                      vel_n_sq * _svMsg.yy.n) / ((vel_n_sq + vel_e_sq) * (vel_n_sq + vel_e_sq));
+                }
+
+                    _gps_position->noise_per_ms = -1;
+                    _gps_position->jamming_indicator = -1;
 
                     ret = 1;
 
                 if (_recvJNSMsg[SI]) {
-        //            _satellite_info->timestamp = gps_absolute_time();
+                    _satellite_info->timestamp = gps_absolute_time();
 
                     _gps_position->satellites_used = _sat_count;
                     _satellite_info->count = _sat_count;
@@ -551,22 +573,22 @@ int GPSDriverJavad::handleEpoch()
                     ret = 3;
                 }
 
-//        //            /* convert time and date information to unix timestamp */
-////                    struct tm timeinfo;
+                if (_recvJNSMsg[RD]) {
+                    /* convert time and date information to unix timestamp */
+                    struct tm timeinfo;
 
-//        ////            timeinfo.tm_mday = packet.date / 10000;
-//        ////            timeinfo_conversion_temp = packet.date - timeinfo.tm_mday * 10000;
-//        ////            timeinfo.tm_mon = (timeinfo_conversion_temp / 100) - 1;
-//        ////            timeinfo.tm_year = (timeinfo_conversion_temp - (timeinfo.tm_mon + 1) * 100) + 100;
+                    timeinfo.tm_year = _rdMsg.year;
+                    timeinfo.tm_mon = _rdMsg.month;
+                    timeinfo.tm_mday = _rdMsg.day;
 
+                    uint32_t tmp = _epochTime.n / 1000;
+                    timeinfo.tm_hour = (uint32_t)(tmp / (60*60)) ;
+                    tmp = tmp % (60*60);
+                    timeinfo.tm_min = (uint32_t)(tmp / (60));
+                    tmp = tmp % 60;
+                    timeinfo.tm_sec = (uint32_t)(tmp);
 
-////                    uint32_t tmp = _epochTime.n / 1000;
-////                    timeinfo.tm_hour = (uint32_t)(tmp / (60*60)) ;
-////                    tmp = tmp % (60*60);
-////                    timeinfo.tm_min = (uint32_t)(tmp / (60));
-////                    tmp = tmp % 60;
-////                    timeinfo.tm_sec = (uint32_t)(tmp);
-
+//                    GPS_INFO("JAVAD > time %d:%d:%d",timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 
 //    //                uint64_t usecs = ((uint32_t)(_epochTime.n) % 1000 ) * 1000ULL;
 //    //                timespec ts;
@@ -575,67 +597,34 @@ int GPSDriverJavad::handleEpoch()
 
 //    //                setClock(ts);
 
-////        #ifndef NO_MKTIME
+#ifndef NO_MKTIME
+                    time_t epoch = mktime(&timeinfo);
 
-////                    time_t epoch = mktime(&timeinfo);
+                    if (epoch > GPS_EPOCH_SECS) {
+//                        // FMUv2+ boards have a hardware RTC, but GPS helps us to configure it
+//                        // and control its drift. Since we rely on the HRT for our monotonic
+//                        // clock, updating it from time to time is safe.
 
-////                    if (epoch > GPS_EPOCH_SECS) {
-////                        // FMUv2+ boards have a hardware RTC, but GPS helps us to configure it
-////                        // and control its drift. Since we rely on the HRT for our monotonic
-////                        // clock, updating it from time to time is safe.
+                        uint64_t usecs = ((uint32_t)(_epochTime.n) % 1000 ) * 1000ULL;
+//                        GPS_INFO("JAVAD > time usec %lld", usecs);
 
-////                        uint64_t usecs = ((uint32_t)(_epochTime.n) % 1000 ) * 1000ULL;
+                        timespec ts;
+                        ts.tv_sec = epoch;
+                        ts.tv_nsec = usecs * 1000;
 
-////                        timespec ts;
-////                        ts.tv_sec = epoch;
-////                        ts.tv_nsec = usecs;
+                        setClock(ts);
 
-////                        setClock(ts);
+                        _gps_position->time_utc_usec = static_cast<uint64_t>(epoch) * 1000000ULL;
+                        _gps_position->time_utc_usec += usecs;
 
-////                        _gps_position->time_utc_usec = static_cast<uint64_t>(epoch) * 1000000ULL;
-////                        _gps_position->time_utc_usec += usecs;
+                    } else {
+                        _gps_position->time_utc_usec = 0;
+                    }
 
-////                    } else {
-////                        _gps_position->time_utc_usec = 0;
-////                    }
-
-////        #else
-////                    _gps_position->time_utc_usec = 0;
-////        #endif
-
-//                _gps_position->timestamp = gps_absolute_time();
-//                _gps_position->timestamp_time_relative = 0;
-
-
-//            _gps_position->timestamp = gps_absolute_time();
-//            _gps_position->lat = (int32_t)47.378301e7f;
-//            _gps_position->lon = (int32_t)8.538777e7f;
-//            _gps_position->alt = (int32_t)1200e3f;
-//            _gps_position->s_variance_m_s = 10.0f;
-            _gps_position->c_variance_rad = 0.1f;
-//            _gps_position->fix_type = 3;
-            _gps_position->eph = 0.9f;
-            _gps_position->epv = 1.8f;
-//            _gps_position->vel_n_m_s = 0.0f;
-//            _gps_position->vel_e_m_s = 0.0f;
-//            _gps_position->vel_d_m_s = 0.0f;
-//            _gps_position->vel_m_s = sqrtf(_gps_position->vel_n_m_s * _gps_position->vel_n_m_s + _gps_position->vel_e_m_s *
-//                            _gps_position->vel_e_m_s + _gps_position->vel_d_m_s * _gps_position->vel_d_m_s);
-//            _gps_position->cog_rad = 0.0f;
-            _gps_position->vel_ned_valid = true;
-//            _gps_position->satellites_used = 10;
-
-
-//            static int count;
-//            if (count < 50)
-//            {
-//                ret = 1;
-//                count++;
-//            }
-//            else
-//                {
-//                    ret = 0;
-//                }
+ #else
+                    _gps_position->time_utc_usec = 0;
+ #endif
+                }
 
                 // end of epoch
                 _recvJNSMsg[RT] = 0;
@@ -646,14 +635,6 @@ int GPSDriverJavad::handleEpoch()
                 _recvJNSMsg[DP] = 0;
                 _recvJNSMsg[PV] = 0;
                 _recvJNSMsg[SI] = 0;
-            }
-            else
-            {
-                // debug double SI bug
-                if (_recvJNSMsg[SI]){
-                    _cbuffer.print();
-                }
-
             }
          }
 
@@ -692,6 +673,7 @@ bool GPSDriverJavad::checkID(type_msgID id)
     case JAVAD_ID_DP:
     case JAVAD_ID_SI:
     case JAVAD_ID_EE:
+    case JAVAD_ID_RD:
 //    case JAVAD_ID_RE:
         return true;
     default :

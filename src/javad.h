@@ -83,6 +83,7 @@
 #define JAVAD_ID_SV 0x5653  // SV
 #define JAVAD_ID_DP 0x5044  // DP
 #define JAVAD_ID_SI 0x4953  // SI
+#define JAVAD_ID_RD 0x4452  // RD
 #define JAVAD_ID_RE 0x4552  // RE
 
 ///* General: Header */
@@ -114,7 +115,7 @@ typedef unsigned short			nstr_t;								// sequence of ASCII characters prepende
 //    IMPLEMENTED JNS MESSAGE TYPES
 //////////////////////////////////////////////////////////////
 
-enum MsgType{ RT, PV, PG, VG, SP, SV, DP, SI, EE, count }; // implemented messages
+enum MsgType{ RT, PV, PG, VG, SP, SV, DP, SI, RD, EE, count }; // implemented messages
 
 typedef union { u1 p[4]; u4 n; } type_msglen;
 typedef	union { a1 p[2]; u2 n; } type_msgID;
@@ -256,6 +257,29 @@ struct SMsgDP
     u1 cs;
 };
 
+// [RD] Receiver Date
+//
+//
+// u2 year;					// Current year [1...65534][]
+// u1 month;                // current month [1..12] []
+// u1 day;					// Current day [1..31] []
+// u1 base;                 // Receiver reference time [enumerated]
+                            //  0 - GPS
+                            //  1 - UTC USNO
+                            //  2 - GLONASS
+                            //  3 - UTC SU
+                            //  4..254 - Reserved
+// u1 cs;					// Checksum
+
+struct SMsgRD
+{
+    u2 year;
+    u1 month;
+    u1 day;
+    u1 base;
+    u1 cs;
+};
+
 // [SI] Satellite Indices Message {nSats+1}
 //
 //
@@ -355,6 +379,7 @@ private:
     SMsgSP  _spMsg;
     SMsgSV  _svMsg;
     SMsgDP  _dpMsg;
+    SMsgRD  _rdMsg;
     SMsgSI  _siMsg;
 
     class CircularBuffer
