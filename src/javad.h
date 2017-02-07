@@ -270,10 +270,11 @@ struct SMsgDP
                             //  3 - UTC SU
                             //  4..254 - Reserved
 // u1 cs;					// Checksum
+typedef union { u1 p[2]; u2 n; } type_year;
 
 struct SMsgRD
 {
-    u2 year;
+    type_year year;
     u1 month;
     u1 day;
     u1 base;
@@ -400,7 +401,7 @@ private:
         uint8_t at(uint32_t p);
 
         // debug only
-        void print();
+        void print(uint32_t n);
 
     private :
         uint8_t _buffer[JAVAD_RECV_BUFFER_SIZE];

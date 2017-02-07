@@ -40,6 +40,8 @@
 #include <vector>
 
 #include "javad.h"
+//#include "pps_sync/drv_pps_sync.h"
+#include "drivers/pps_sync/drv_pps_sync.h"
 
 #define ROT_LEFT(val) ((val << lShift) | (val >> rShift))
 
@@ -137,7 +139,7 @@ int GPSDriverJavad::waitForAck(const unsigned timeout)
 
             for (int i=0; i< rd_nbr; i++) {
                 if (buf[i] == 0x7E && buf[i+1] == 0x7E) {
-                    GPS_INFO("get valid msg");
+//                    GPS_INFO("get valid msg");
                     _ack_state = JAVAD_ACK_GOT_ACK;
                     return 1;
                 }
@@ -411,7 +413,7 @@ int GPSDriverJavad::handleMessage(int msglen)
 
     case JAVAD_ID_RD:
 //        GPS_INFO("JAVAD: parse RD") ;
-        for(i=0; i<2; i++) _rdMsg.year = _cbuffer.at(from++);
+        for(i=0; i<2; i++) _rdMsg.year.p[i] = _cbuffer.at(from++);
         _rdMsg.month = _cbuffer.at(from++);
         _rdMsg.day = _cbuffer.at(from++);
         _rdMsg.base = _cbuffer.at(from);
@@ -473,7 +475,7 @@ int GPSDriverJavad::handleEpoch()
             {
                 _gps_position->timestamp = gps_absolute_time();
                 _last_timestamp_time = _gps_position->timestamp;
-                _gps_position->timestamp_time_relative = (int32_t)(_last_timestamp_time - _gps_position->timestamp);
+                _gps_position->timestamp_time_relative = (int32_t)(pps_sync_get_last_pulse_hrt());
 
                 // by default fix_type no fix
                 _gps_position->fix_type = 0;
@@ -577,8 +579,8 @@ int GPSDriverJavad::handleEpoch()
                     /* convert time and date information to unix timestamp */
                     struct tm timeinfo;
 
-                    timeinfo.tm_year = _rdMsg.year;
-                    timeinfo.tm_mon = _rdMsg.month;
+                    timeinfo.tm_year = _rdMsg.year.n - 1900;
+                    timeinfo.tm_mon = _rdMsg.month - 1;
                     timeinfo.tm_mday = _rdMsg.day;
 
                     uint32_t tmp = _epochTime.n / 1000;
@@ -588,7 +590,8 @@ int GPSDriverJavad::handleEpoch()
                     tmp = tmp % 60;
                     timeinfo.tm_sec = (uint32_t)(tmp);
 
-//                    GPS_INFO("JAVAD > time %d:%d:%d",timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+//                    GPS_INFO("JAVAD > pps %ld %d:%d:%d", _gps_position->timestamp_time_relative ,timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+//                    GPS_INFO("JAVAD > time %d.%d.%d %d:%d:%d",timeinfo.tm_mday, timeinfo.tm_mon, timeinfo.tm_year,timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 
 //    //                uint64_t usecs = ((uint32_t)(_epochTime.n) % 1000 ) * 1000ULL;
 //    //                timespec ts;
@@ -832,10 +835,10 @@ uint8_t GPSDriverJavad::CircularBuffer::at(uint32_t p)
         return _buffer[_tail + p - JAVAD_RECV_BUFFER_SIZE];
 }
 
-void GPSDriverJavad::CircularBuffer::print()
+void GPSDriverJavad::CircularBuffer::print(uint32_t n)
 {
-    GPS_INFO("cBuffer > start print %d value", _count);
-    for (int i=0; i<_count;i++) {
+    GPS_INFO("cBuffer > start print %d value", n);
+    for (int i=0; i<n;i++) {
         printf("[%d,%c]",at(i),at(i));
     }
 }
