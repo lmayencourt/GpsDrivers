@@ -411,9 +411,6 @@ private:
     };
 
     CircularBuffer _cbuffer;
-
-//    uint8_t _rx_buffer[10];
-//    uint32_t _rx_buffer_len;
 };
 
 #endif /* JAVAD_H_ */
